@@ -1,0 +1,1 @@
+# Placeholder — this folder holds the PBIR-format report definition synced from Fabric's Git integration (report.json, .pbir, static resources, etc). Replace with your actual analyst-committed content.

@@ -1,0 +1,39 @@
+# fabric-cicd parameterization file.
+# Must live inside the same workspace folder passed as repository_directory
+# to FabricWorkspace. The `environment` value passed into FabricWorkspace
+# must exactly match one of the keys used below (DEV / TEST / PROD) or the
+# corresponding replacement is silently skipped -- validated in
+# tests/validate_parameter_file.py before any deployment runs.
+
+find_replace:
+  # Lakehouse GUID referenced inside notebooks and data pipelines
+  - find_value: "11111111-2222-3333-4444-555555555555"
+    replace_value:
+      TEST: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+      PROD: "bbbbbbbb-cccc-dddd-eeee-ffffffffffff"
+    item_type: ["Notebook", "DataPipeline"]
+
+  # Lakehouse / SQL endpoint connection GUID referenced inside semantic models
+  - find_value: "22222222-3333-4444-5555-666666666666"
+    replace_value:
+      TEST: "cccccccc-dddd-eeee-ffff-000000000000"
+      PROD: "dddddddd-eeee-ffff-0000-111111111111"
+    item_type: ["SemanticModel"]
+
+  # Workspace ID references embedded in report/semantic model bindings
+  - find_value: "33333333-4444-5555-6666-777777777777"
+    replace_value:
+      TEST: "$items.Workspace.CurrentWorkspace.Id"    # dynamic replacement -- resolved at deploy time
+      PROD: "$items.Workspace.CurrentWorkspace.Id"
+    item_type: ["Report", "SemanticModel"]
+
+# Remaps a Dev-scoped custom Spark pool reference to the correct pool per environment
+spark_pool:
+  - instance_pool_id: "72c68dbc-0775-4d59-909d-a47896f4573b"
+    replace_value:
+      TEST:
+        type: "Capacity"
+        name: "CapacityPool_Medium"
+      PROD:
+        type: "Capacity"
+        name: "CapacityPool_Large"

@@ -1,0 +1,105 @@
+name: fabric-cicd
+
+# Works on GitHub Enterprise Cloud the same as github.com — this workflow syntax
+# doesn't change. If your org runs GitHub Enterprise Server (on-prem), Fabric's
+# native Git integration itself won't connect to it (Cloud only), but this pipeline's
+# item deployment steps still work fine since they only need network egress to
+# api.fabric.microsoft.com / login.microsoftonline.com / api.powerbi.com, not to GitHub.
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      target_environment:
+        description: "Environment to deploy (used only for manual dispatch, e.g. a hotfix)"
+        required: false
+        type: choice
+        options: [dev, test, prod]
+
+permissions:
+  contents: read
+  id-token: write   # required for OIDC federation to Entra ID — no stored client secret
+
+env:
+  FABRIC_TENANT_ID: ${{ vars.FABRIC_TENANT_ID }}
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Validate item structure and parameter.yml keys
+        run: python tests/validate_items.py --repo-dir workspace
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: validation-report
+          path: tests/reports/
+          if-no-files-found: ignore
+
+  deploy-dev:
+    needs: validate
+    if: github.ref == 'refs/heads/main' || github.event.inputs.target_environment == 'dev'
+    runs-on: ubuntu-latest
+    environment: dev            # no required reviewers configured — auto-deploy
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - run: pip install -r requirements.txt
+
+      - name: Deploy to Dev
+        env:
+          FABRIC_CLIENT_ID: ${{ vars.DEV_SP_CLIENT_ID }}
+        run: python src/main.py --env dev --repo-dir workspace
+
+  deploy-test:
+    needs: deploy-dev
+    if: startsWith(github.ref, 'refs/tags/v') || github.event.inputs.target_environment == 'test'
+    runs-on: ubuntu-latest
+    environment: test           # configure 1 required reviewer in repo Settings → Environments
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - run: pip install -r requirements.txt
+
+      - name: Deploy to Test
+        env:
+          FABRIC_CLIENT_ID: ${{ vars.TEST_SP_CLIENT_ID }}
+        run: python src/main.py --env test --repo-dir workspace
+
+  deploy-prod:
+    needs: deploy-test
+    if: startsWith(github.ref, 'refs/tags/v') || github.event.inputs.target_environment == 'prod'
+    runs-on: ubuntu-latest
+    environment: prod           # configure 2 required reviewers in repo Settings → Environments
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - run: pip install -r requirements.txt
+
+      - name: Deploy to Prod
+        env:
+          FABRIC_CLIENT_ID: ${{ vars.PROD_SP_CLIENT_ID }}
+        run: python src/main.py --env prod --repo-dir workspace
