@@ -11,4 +11,4 @@ param spnClientId = '00000000-0000-0000-0000-000000000000'
 param spnClientSecret = readEnvironmentVariable('GATEWAY_SPN_SECRET')
 param tenantId = '11111111-1111-1111-1111-111111111111'
 
-param deployPublicIp = false
+param bastionSkuName = 'Basic'

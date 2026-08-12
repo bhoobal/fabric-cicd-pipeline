@@ -28,6 +28,8 @@
 //  - The gateway recovery key and service principal secret are passed
 //    through the extension's protectedSettings, which is encrypted at rest
 //    and not returned by ARM/Azure Resource Graph reads.
+//  - The VM has no public IP. RDP access is only available via an Azure
+//    Bastion host deployed into the same VNet (AzureBastionSubnet).
 // ============================================================================
 
 @description('Azure region for all resources.')
@@ -52,11 +54,15 @@ param vnetAddressPrefix string = '10.60.0.0/24'
 @description('Address prefix for the gateway subnet.')
 param subnetAddressPrefix string = '10.60.0.0/26'
 
-@description('Source address prefix allowed to RDP into the VM via the NSG (only used if deployPublicIp is true). Lock this down to your own IP/CIDR.')
-param rdpSourceAddressPrefix string = '*'
+@description('Address prefix for the AzureBastionSubnet. Must be /26 or larger, and the subnet must be named exactly "AzureBastionSubnet".')
+param bastionSubnetAddressPrefix string = '10.60.0.64/26'
 
-@description('Deploy a public IP + NSG RDP rule for direct access. Leave false if you will reach the VM via VPN/ExpressRoute/Bastion instead.')
-param deployPublicIp bool = false
+@description('Bastion SKU. "Basic" is sufficient for standard RDP/SSH access.')
+@allowed([
+  'Basic'
+  'Standard'
+])
+param bastionSkuName string = 'Basic'
 
 @description('Name to register the gateway cluster as. Must be unique across the tenant.')
 param gatewayName string
@@ -92,9 +98,9 @@ resource nsg 'Microsoft.Network/networkSecurityGroups@2023-11-01' = {
   location: location
   tags: tags
   properties: {
-    securityRules: deployPublicIp ? [
+    securityRules: [
       {
-        name: 'Allow-RDP'
+        name: 'Allow-RDP-From-Bastion'
         properties: {
           priority: 1000
           direction: 'Inbound'
@@ -102,11 +108,11 @@ resource nsg 'Microsoft.Network/networkSecurityGroups@2023-11-01' = {
           protocol: 'Tcp'
           sourcePortRange: '*'
           destinationPortRange: '3389'
-          sourceAddressPrefix: rdpSourceAddressPrefix
+          sourceAddressPrefix: bastionSubnetAddressPrefix
           destinationAddressPrefix: '*'
         }
       }
-    ] : []
+    ]
   }
 }
 
@@ -128,19 +134,14 @@ resource vnet 'Microsoft.Network/virtualNetworks@2023-11-01' = {
           }
         }
       }
+      {
+        // Name is fixed by Azure Bastion requirements — must be exactly "AzureBastionSubnet".
+        name: 'AzureBastionSubnet'
+        properties: {
+          addressPrefix: bastionSubnetAddressPrefix
+        }
+      }
     ]
-  }
-}
-
-resource publicIp 'Microsoft.Network/publicIPAddresses@2023-11-01' = if (deployPublicIp) {
-  name: '${vmName}-pip'
-  location: location
-  tags: tags
-  sku: {
-    name: 'Standard'
-  }
-  properties: {
-    publicIPAllocationMethod: 'Static'
   }
 }
 
@@ -157,9 +158,46 @@ resource nic 'Microsoft.Network/networkInterfaces@2023-11-01' = {
           subnet: {
             id: vnet.properties.subnets[0].id
           }
-          publicIPAddress: deployPublicIp ? {
-            id: publicIp.id
-          } : null
+        }
+      }
+    ]
+  }
+}
+
+// ----------------------------------------------------------------------------
+// Azure Bastion (only path for RDP access — no public IP on the VM itself)
+// ----------------------------------------------------------------------------
+
+resource bastionPublicIp 'Microsoft.Network/publicIPAddresses@2023-11-01' = {
+  name: '${vmName}-bastion-pip'
+  location: location
+  tags: tags
+  sku: {
+    name: 'Standard'
+  }
+  properties: {
+    publicIPAllocationMethod: 'Static'
+  }
+}
+
+resource bastionHost 'Microsoft.Network/bastionHosts@2023-11-01' = {
+  name: '${vmName}-bastion'
+  location: location
+  tags: tags
+  sku: {
+    name: bastionSkuName
+  }
+  properties: {
+    ipConfigurations: [
+      {
+        name: 'bastionIpConfig'
+        properties: {
+          subnet: {
+            id: vnet.properties.subnets[1].id
+          }
+          publicIPAddress: {
+            id: bastionPublicIp.id
+          }
         }
       }
     ]
@@ -288,5 +326,5 @@ resource gatewayBootstrap 'Microsoft.Compute/virtualMachines/extensions@2024-07-
 
 output vmName string = vm.name
 output vmPrivateIp string = nic.properties.ipConfigurations[0].properties.privateIPAddress
-output vmPublicIp string = deployPublicIp ? publicIp.properties.ipAddress : ''
 output gatewayName string = gatewayName
+output bastionHostName string = bastionHost.name
