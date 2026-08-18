@@ -14,39 +14,17 @@ https://learn.microsoft.com/en-us/rest/api/fabric/core/git before relying on thi
 in production, especially the git_connect step.
 """
 
-import time
 import requests
 
-BASE_URL = "https://api.fabric.microsoft.com/v1"
-
-
-def _headers(token: str) -> dict:
-    return {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-
-
-def _raise_for_status(response: requests.Response, context: str) -> None:
-    if response.status_code >= 300:
-        raise RuntimeError(f"{context} failed [{response.status_code}]: {response.text}")
+from fabric_client import BASE_URL, headers, raise_for_status, get_paginated, poll_long_running_operation
 
 
 def get_workspace_by_name(token: str, display_name: str) -> dict | None:
     """Returns the workspace dict if found by exact displayName match, else None."""
-    url = f"{BASE_URL}/workspaces"
-    continuation_token = None
-
-    while True:
-        params = {"continuationToken": continuation_token} if continuation_token else {}
-        response = requests.get(url, headers=_headers(token), params=params, timeout=30)
-        _raise_for_status(response, "List workspaces")
-        body = response.json()
-
-        for ws in body.get("value", []):
-            if ws.get("displayName") == display_name:
-                return ws
-
-        continuation_token = body.get("continuationToken")
-        if not continuation_token:
-            return None
+    for ws in get_paginated(token, f"{BASE_URL}/workspaces"):
+        if ws.get("displayName") == display_name:
+            return ws
+    return None
 
 
 def create_workspace(token: str, display_name: str, description: str = "", capacity_id: str | None = None) -> dict:
@@ -55,8 +33,8 @@ def create_workspace(token: str, display_name: str, description: str = "", capac
     if capacity_id:
         payload["capacityId"] = capacity_id
 
-    response = requests.post(f"{BASE_URL}/workspaces", headers=_headers(token), json=payload, timeout=30)
-    _raise_for_status(response, f"Create workspace '{display_name}'")
+    response = requests.post(f"{BASE_URL}/workspaces", headers=headers(token), json=payload, timeout=30)
+    raise_for_status(response, f"Create workspace '{display_name}'")
     print(f"[lifecycle] Created workspace '{display_name}'.")
     return response.json()
 
@@ -84,28 +62,16 @@ def assign_capacity(token: str, workspace_id: str, capacity_id: str) -> None:
     """
     response = requests.post(
         f"{BASE_URL}/workspaces/{workspace_id}/assignToCapacity",
-        headers=_headers(token),
+        headers=headers(token),
         json={"capacityId": capacity_id},
         timeout=30,
     )
-    _raise_for_status(response, f"Assign workspace {workspace_id} to capacity {capacity_id}")
+    raise_for_status(response, f"Assign workspace {workspace_id} to capacity {capacity_id}")
     print(f"[lifecycle] Workspace {workspace_id} assigned to capacity {capacity_id}.")
 
 
 def list_role_assignments(token: str, workspace_id: str) -> list[dict]:
-    assignments = []
-    continuation_token = None
-    url = f"{BASE_URL}/workspaces/{workspace_id}/roleAssignments"
-
-    while True:
-        params = {"continuationToken": continuation_token} if continuation_token else {}
-        response = requests.get(url, headers=_headers(token), params=params, timeout=30)
-        _raise_for_status(response, f"List role assignments for {workspace_id}")
-        body = response.json()
-        assignments.extend(body.get("value", []))
-        continuation_token = body.get("continuationToken")
-        if not continuation_token:
-            return assignments
+    return get_paginated(token, f"{BASE_URL}/workspaces/{workspace_id}/roleAssignments")
 
 
 def add_role_assignment(token: str, workspace_id: str, principal_id: str, principal_type: str, role: str) -> None:
@@ -116,11 +82,11 @@ def add_role_assignment(token: str, workspace_id: str, principal_id: str, princi
     payload = {"principal": {"id": principal_id, "type": principal_type}, "role": role}
     response = requests.post(
         f"{BASE_URL}/workspaces/{workspace_id}/roleAssignments",
-        headers=_headers(token),
+        headers=headers(token),
         json=payload,
         timeout=30,
     )
-    _raise_for_status(response, f"Add role assignment ({principal_type} {principal_id} -> {role})")
+    raise_for_status(response, f"Add role assignment ({principal_type} {principal_id} -> {role})")
     print(f"[lifecycle] Granted {role} to {principal_type} {principal_id} on workspace {workspace_id}.")
 
 
@@ -180,41 +146,24 @@ def connect_git(
     }
     response = requests.post(
         f"{BASE_URL}/workspaces/{workspace_id}/git/connect",
-        headers=_headers(token),
+        headers=headers(token),
         json=connect_payload,
         timeout=30,
     )
-    _raise_for_status(response, f"Connect workspace {workspace_id} to GitHub repo {owner_name}/{repository_name}")
+    raise_for_status(response, f"Connect workspace {workspace_id} to GitHub repo {owner_name}/{repository_name}")
     print(f"[lifecycle] Workspace {workspace_id} connected to {owner_name}/{repository_name}@{branch_name}:{directory_name}.")
 
     # Initialize the connection - this is a long-running operation in Fabric;
     # poll briefly rather than assuming it completes synchronously.
     init_response = requests.post(
         f"{BASE_URL}/workspaces/{workspace_id}/git/initializeConnection",
-        headers=_headers(token),
+        headers=headers(token),
         json={"initializationStrategy": initialization_strategy},
         timeout=30,
     )
-    _raise_for_status(init_response, f"Initialize git connection for workspace {workspace_id}")
+    raise_for_status(init_response, f"Initialize git connection for workspace {workspace_id}")
 
     if init_response.status_code == 202:
-        _poll_long_running_operation(token, init_response.headers.get("Location"))
+        poll_long_running_operation(token, init_response.headers.get("Location"))
 
     print(f"[lifecycle] Git initialization complete for workspace {workspace_id}.")
-
-
-def _poll_long_running_operation(token: str, operation_url: str | None, timeout_seconds: int = 300) -> None:
-    """Fabric's long-running operations return a 202 + Location header to poll."""
-    if not operation_url:
-        return
-    start = time.time()
-    while time.time() - start < timeout_seconds:
-        response = requests.get(operation_url, headers=_headers(token), timeout=30)
-        body = response.json()
-        status = body.get("status")
-        if status == "Succeeded":
-            return
-        if status == "Failed":
-            raise RuntimeError(f"Long-running operation failed: {body}")
-        time.sleep(5)
-    raise TimeoutError(f"Long-running operation did not complete within {timeout_seconds}s: {operation_url}")

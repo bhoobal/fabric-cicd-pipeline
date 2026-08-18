@@ -17,6 +17,11 @@ on:
         required: false
         type: choice
         options: [dev, test, prod]
+      setup_pipeline:
+        description: "Run setup-pipeline instead of a deploy (provisions all stage workspaces + Fabric deployment pipeline mapping). Ignores target_environment."
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -26,7 +31,32 @@ env:
   FABRIC_TENANT_ID: ${{ vars.FABRIC_TENANT_ID }}
 
 jobs:
+  setup-pipeline:
+    # Manual-only, and deliberately separate from validate/deploy-* below: this
+    # provisions every stage's workspace plus the Fabric deployment pipeline
+    # mapping in one run, so it needs a single identity with create/RBAC/capacity
+    # permissions across all stages - broader than any one stage's deploy SP
+    # should normally have. Run this once when the topology changes (new stage,
+    # renamed workspace), not on every merge/tag.
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.setup_pipeline == 'true'
+    runs-on: ubuntu-latest
+    environment: pipeline-admin   # configure required reviewers in repo Settings → Environments
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - run: pip install -r requirements.txt
+
+      - name: Set up deployment pipeline + stage workspace mapping
+        env:
+          FABRIC_CLIENT_ID: ${{ vars.PIPELINE_ADMIN_SP_CLIENT_ID }}
+        run: python src/main.py setup-pipeline
+
   validate:
+    if: github.event.inputs.setup_pipeline != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -64,7 +94,7 @@ jobs:
       - name: Deploy to Dev
         env:
           FABRIC_CLIENT_ID: ${{ vars.DEV_SP_CLIENT_ID }}
-        run: python src/main.py --env dev --repo-dir workspace
+        run: python src/main.py deploy --stage dev --repo-dir workspace
 
   deploy-test:
     needs: deploy-dev
@@ -83,7 +113,7 @@ jobs:
       - name: Deploy to Test
         env:
           FABRIC_CLIENT_ID: ${{ vars.TEST_SP_CLIENT_ID }}
-        run: python src/main.py --env test --repo-dir workspace
+        run: python src/main.py deploy --stage test --repo-dir workspace
 
   deploy-prod:
     needs: deploy-test
@@ -102,4 +132,4 @@ jobs:
       - name: Deploy to Prod
         env:
           FABRIC_CLIENT_ID: ${{ vars.PROD_SP_CLIENT_ID }}
-        run: python src/main.py --env prod --repo-dir workspace
+        run: python src/main.py deploy --stage prod --repo-dir workspace

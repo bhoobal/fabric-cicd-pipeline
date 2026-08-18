@@ -1,11 +1,20 @@
 # environments.yml
-# One entry per environment. Replace every placeholder GUID/name before running.
+# Defines the Fabric deployment pipeline plus an ORDERED list of stages
+# (upstream -> downstream, e.g. dev -> test -> prod). Add, remove, or reorder
+# stages freely here - src/main.py has no hardcoded stage count or names.
+#
+# Replace every placeholder GUID/name before running.
 # principal_type must be one of: User | Group | ServicePrincipal
 # role must be one of: Admin | Member | Contributor | Viewer
 
-environments:
-  dev:
+deployment_pipeline:
+  name: "DP-SalesAnalytics"
+  description: "Sales Analytics domain deployment pipeline"
+
+stages:
+  - key: dev                               # CLI stage id: `python src/main.py deploy --stage dev`
     fabric_environment_key: "DEV"          # must match a key in workspace/parameter.yml
+    pipeline_stage_name: "Development"     # display name of this stage in the Fabric deployment pipeline
     workspace_name: "WS-SalesAnalytics-Dev"
     description: "Sales Analytics domain - Development"
     capacity_id: "00000000-0000-0000-0000-000000000001"
@@ -24,8 +33,9 @@ environments:
       directory_name: "/workspace"
       initialization_strategy: "PreferRemote"
 
-  test:
+  - key: test
     fabric_environment_key: "TEST"
+    pipeline_stage_name: "Test"
     workspace_name: "WS-SalesAnalytics-Test"
     description: "Sales Analytics domain - Test/UAT"
     capacity_id: "00000000-0000-0000-0000-000000000002"
@@ -39,8 +49,9 @@ environments:
     git:
       connect: false
 
-  prod:
+  - key: prod
     fabric_environment_key: "PROD"
+    pipeline_stage_name: "Production"
     workspace_name: "WS-SalesAnalytics-Prod"
     description: "Sales Analytics domain - Production"
     capacity_id: "00000000-0000-0000-0000-000000000003"
@@ -53,3 +64,6 @@ environments:
         role: "Viewer"
     git:
       connect: false
+
+  # To add a stage (e.g. UAT between Test and Prod), insert a new entry here
+  # in the position you want it in the pipeline - no code changes needed.

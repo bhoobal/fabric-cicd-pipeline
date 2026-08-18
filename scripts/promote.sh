@@ -26,6 +26,7 @@ TARGET_ENV="${1:?Usage: promote.sh <test|prod>}"
 if [[ "$TARGET_ENV" != "test" && "$TARGET_ENV" != "prod" ]]; then
   echo "Refusing to promote to '$TARGET_ENV' — valid targets are 'test' or 'prod'." >&2
   echo "(Dev isn't a promotion target: it's populated by Fabric's Git integration, not this script.)" >&2
+  echo "(Stages beyond dev/test/prod can be added in config/environments.yml — update this check to match.)" >&2
   exit 1
 fi
 
@@ -44,4 +45,4 @@ if [[ "$confirm" != "y" && "$confirm" != "Y" ]]; then
 fi
 
 echo "=== Deploying to '$TARGET_ENV' ==="
-python src/main.py --env "$TARGET_ENV" --repo-dir workspace
+python src/main.py deploy --stage "$TARGET_ENV" --repo-dir workspace

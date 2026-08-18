@@ -1,7 +1,7 @@
 """
 validate_items.py
 Runs in the CI 'validate' stage, before any deployment. Checks:
-  1. Every environment key referenced in config/environments.yml has a corresponding
+  1. Every stage's fabric_environment_key in config/environments.yml has a corresponding
      entry in the repo's parameter.yml (catches the silent-skip gotcha at PR time
      instead of at deploy time).
   2. Basic structural sanity of the workspace folder (expected item folders exist).
@@ -23,13 +23,13 @@ def load_yaml(path: Path) -> dict:
         return yaml.safe_load(f) or {}
 
 
-def validate_parameter_yml_coverage(repo_dir: Path, environments_config: dict) -> list:
+def validate_parameter_yml_coverage(repo_dir: Path, pipeline_config: dict) -> list:
     errors = []
     parameter_file = repo_dir / "parameter.yml"
 
     expected_keys = {
-        env["fabric_environment_key"]
-        for env in environments_config.get("environments", {}).values()
+        stage["fabric_environment_key"]
+        for stage in pipeline_config.get("stages", [])
     }
 
     if not parameter_file.exists():
@@ -77,11 +77,11 @@ def main():
     repo_dir = REPO_ROOT / args.repo_dir
     config_path = REPO_ROOT / args.config
 
-    environments_config = load_yaml(config_path)
+    pipeline_config = load_yaml(config_path)
 
     all_errors = []
     all_errors.extend(validate_workspace_structure(repo_dir))
-    all_errors.extend(validate_parameter_yml_coverage(repo_dir, environments_config))
+    all_errors.extend(validate_parameter_yml_coverage(repo_dir, pipeline_config))
 
     reports_dir = REPO_ROOT / "tests" / "reports"
     reports_dir.mkdir(parents=True, exist_ok=True)
