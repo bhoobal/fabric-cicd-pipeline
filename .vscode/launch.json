@@ -1,0 +1,38 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "setup-pipeline",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/src/main.py",
+            "python": "${workspaceFolder}/.venv/bin/python",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "args": ["--config", "config/environments.yml", "setup-pipeline"],
+            "justMyCode": true
+        },
+        {
+            "name": "deploy: dev",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/src/main.py",
+            "python": "${workspaceFolder}/.venv/bin/python",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "args": ["--config", "config/environments.yml", "deploy", "--stage", "dev", "--repo-dir", "workspace"],
+            "justMyCode": true
+        },
+        {
+            "name": "deploy: all-stages",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/src/main.py",
+            "python": "${workspaceFolder}/.venv/bin/python",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "args": ["--config", "config/environments.yml", "deploy", "--all-stages", "--repo-dir", "workspace"],
+            "justMyCode": true
+        }
+    ]
+}
